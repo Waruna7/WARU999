@@ -1,10 +1,10 @@
-const { readEnv } = require("../lib/database");
 const { cmd, commands } = require("../command");
-
+const config = require('../config');
 cmd(
   {
     pattern: "menu",
     alise: ["getmenu"],
+    react: "🤖",
     desc: "get cmd list",
     category: "main",
     filename: __filename,
@@ -38,8 +38,7 @@ cmd(
       reply,
     }
   ) => {
-    try {
-      const config = await readEnv();
+    try {      
       let menu = {
         main: "",
         download: "",
@@ -61,30 +60,14 @@ cmd(
 
 
 | *MAIN COMMANDS* |
-    ▫️.alive
-    ▫️.menu
-    ▫️.ai <text>
-    ▫️.system
-    ▫️.owner
-| *DOWNLOAD COMMANDS* |
-    ▫️.song <text>
-    ▫️.video <text>
-    ▫️.fb <link>
-| *GROUP COMMANDS* |
-${menu.group}
-| *OWNER COMMANDS* |
-    ▫️.restart
-    ▫️.update
-| *CONVERT COMMANDS* |
-    ▫️.sticker <reply img>
-    ▫️.img <reply sticker>
-    ▫️.tr <lang><text>
-    ▫️.tts <text>
-| *SEARCH COMMANDS* |
-${menu.search}
-
-
-🥶𝐌𝐚𝐝𝐞 𝐛𝐲 𝐒_𝐈_𝐇_𝐈_𝐋_𝐄_𝐋🥶
+    ~.alive
+    ~.menu
+| *DOWNLOAD COMMANDS* | 
+    ~.video
+    ~.music
+    ~.movie
+    
+🥶𝐌𝐚𝐝𝐞 𝐛𝐲 W_A_R_U_9_9_9🥶
 
 > ROBIN MENU MSG
 `;
@@ -92,7 +75,7 @@ ${menu.search}
         from,
         {
           image: {
-            url: "https://raw.githubusercontent.com/Dark-Robin/Bot-Helper/refs/heads/main/autoimage/Bot%20robin%20menu.jpg",
+            url: "https://raw.githubusercontent.com/Waruna7/bot-help2/refs/heads/main/ChatGPT%20Image%20May%2016%2C%202025%2C%2011_52_58%20AM.png",
           },
           caption: madeMenu,
         },
