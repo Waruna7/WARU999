@@ -20,39 +20,36 @@ cmd({
     try {
         if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
 
-        // Fetch movie search results
         const searchUrl = `${API_URL}?q=${encodeURIComponent(q)}&api_key=${API_KEY}`;
-        let response = await fetchJson(searchUrl);
+        const response = await fetchJson(searchUrl);
 
         if (!response || !response.SearchResult || !response.SearchResult.result.length) {
             return await reply(`❌ No results found for: *${q}*`);
         }
 
-        const selectedMovie = response.SearchResult.result[0]; // Select first result
+        const selectedMovie = response.SearchResult.result[0];
         const detailsUrl = `${DOWNLOAD_URL}/?id=${selectedMovie.id}&api_key=${API_KEY}`;
-        let detailsResponse = await fetchJson(detailsUrl);
+        const detailsResponse = await fetchJson(detailsUrl);
 
         if (!detailsResponse || !detailsResponse.downloadLinks || !detailsResponse.downloadLinks.result.links.driveLinks.length) {
             return await reply('❌ No PixelDrain download links found.');
         }
 
-        // Select the 720p PixelDrain link
         const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
         const selectedDownload = pixelDrainLinks.find(link => link.quality === "HD 720p");
-        
+
         if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
             return await reply('❌ No valid 720p PixelDrain link available.');
         }
 
-        // Convert to direct download link
-        const fileId = selectedDownload.link.split('/').pop();
+        const urlParts = selectedDownload.link.split('/');
+        const fileId = urlParts.includes('file') ? urlParts[urlParts.indexOf('file') + 1] : urlParts.pop();
         const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
-        
-        
-        // Download movie
-        const filePath = path.join(__dirname, `${selectedMovie.title}-720p.mp4`);
+
+        const safeTitle = selectedMovie.title.replace(/[\/\\?%*:|"<>]/g, '-');
+        const filePath = path.join(__dirname, `${safeTitle}-720p.mp4`);
         const writer = fs.createWriteStream(filePath);
-        
+
         const { data } = await axios({
             url: directDownloadLink,
             method: 'GET',
@@ -65,7 +62,7 @@ cmd({
             await robin.sendMessage(from, {
                 document: fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
-                fileName: `${selectedMovie.title}-720p.mp4`,
+                fileName: `${safeTitle}-720p.mp4`,
                 caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 720p\n✅ *Download Complete!*`,
                 quoted: mek 
             });
