@@ -2,7 +2,7 @@ const axios = require('axios');
 const TEMP = {};
 
 // ⚠️ Replace this with your actual TMDB key:
-const TMDB_KEY = 'YOUR_TMDB_KEY_HERE';
+const TMDB_KEY = '2619480e652a7d92e47cef44c27e96b5';
 
 module.exports = {
   command: ['movie'],
