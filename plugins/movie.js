@@ -36,10 +36,20 @@ cmd({
         }
 
         const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
-        const selectedDownload = pixelDrainLinks.find(link => link.quality === "HD 720p");
+
+        // Priority: 720p > 1080p > 480p
+        const preferredQualities = ["HD 720p", "Full HD 1080p", "SD 480p"];
+        let selectedDownload = null;
+        for (const quality of preferredQualities) {
+            selectedDownload = pixelDrainLinks.find(link => link.quality === quality);
+            if (selectedDownload) {
+                await reply(`📥 Trying quality: *${quality}*`);
+                break;
+            }
+        }
 
         if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
-            return await reply('❌ No valid 720p PixelDrain link available.');
+            return await reply('❌ No valid download link found for 720p, 1080p, or 480p.');
         }
 
         const urlParts = selectedDownload.link.split('/');
@@ -47,7 +57,7 @@ cmd({
         const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
 
         const safeTitle = selectedMovie.title.replace(/[\/\\?%*:|"<>]/g, '-');
-        const filePath = path.join(__dirname, `${safeTitle}-720p.mp4`);
+        const filePath = path.join(__dirname, `${safeTitle}-${selectedDownload.quality}.mp4`);
         const writer = fs.createWriteStream(filePath);
 
         const { data } = await axios({
@@ -62,8 +72,8 @@ cmd({
             await robin.sendMessage(from, {
                 document: fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
-                fileName: `${safeTitle}-720p.mp4`,
-                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 720p\n✅ *Download Complete!*`,
+                fileName: `${safeTitle}-${selectedDownload.quality}.mp4`,
+                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: ${selectedDownload.quality}\n✅ *Download Complete!*`,
                 quoted: mek 
             });
             fs.unlinkSync(filePath);
