@@ -1,156 +1,70 @@
 const { cmd } = require('../command');
 const axios = require('axios');
-const WebTorrent = require('webtorrent');
 const fs = require('fs-extra');
 const path = require('path');
 
 cmd({
     pattern: "movie",
-    alias: ["moviedl", "films"],
+    alias: ["yts", "torrent"],
     react: '🎬',
     category: "download",
-    desc: "Download movies from YTS via torrent",
+    desc: "Download movie from YTS via torrent",
     filename: __filename
 }, async (robin, m, mek, { from, q, reply }) => {
+    if (!q) return await reply("❌ Provide movie name (e.g., `movie Interstellar`)");
+
     try {
-        if (!q || q.trim() === '') return await reply('❌ Provide a movie name!');
+        await reply("🔍 Searching YTS...");
+        const res = await axios.get(`https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(q)}`);
+        const movies = res.data.data.movies;
+        if (!movies || movies.length === 0) return await reply("❌ No results found.");
 
-        // Search movie on YTS
-        const search = await axios.get(`https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(q)}`);
-        const movies = search.data.data.movies;
-        if (!movies || movies.length === 0) return await reply(`❌ No results for: *${q}*`);
-
-        const movie = movies[0]; // pick first result
+        const movie = movies[0]; // top result
         const torrent = movie.torrents.find(t => t.quality === "1080p") || movie.torrents[0];
-        if (!torrent || !torrent.url) return await reply('❌ No suitable torrent found.');
+        if (!torrent || !torrent.url) return await reply("❌ No torrent link found.");
 
-        await reply(`🎬 *${movie.title_long}*\n📥 Downloading *${torrent.quality}* via torrent...`);
+        const title = movie.title.replace(/[\\/:*?"<>|]/g, '');
+        const filePath = path.join(__dirname, `${title}.mp4`);
 
-        // Start torrent
+        await reply(`🎬 *${movie.title}*\n📥 Downloading *${torrent.quality}*... Please wait.`);
+
+        // Import WebTorrent dynamically
+        const WebTorrent = (await import('webtorrent')).default;
         const client = new WebTorrent();
-        client.add(torrent.url, { path: './downloads' }, async torrent => {
-            const file = torrent.files.find(f => f.name.endsWith('.mp4')) || torrent.files[0];
-            const filePath = path.join('./downloads', file.path);
 
-            const writeStream = fs.createWriteStream(filePath);
-            const readStream = file.createReadStream();
-            readStream.pipe(writeStream);
+        client.add(torrent.url, { path: __dirname }, async torrent => {
+            const file = torrent.files.find(f => f.name.endsWith('.mp4'));
+            if (!file) return await reply("❌ No .mp4 file found in torrent.");
 
-            writeStream.on('finish', async () => {
-                try {
-                    if (!fs.existsSync(filePath)) {
-                        await reply("❌ File not found after download.");
-                        return;
-                    }
+            const stream = fs.createWriteStream(filePath);
+            file.createReadStream().pipe(stream);
 
-                    const stream = fs.createReadStream(filePath);
-                    stream.on('error', async err => {
-                        console.error('Stream Error:', err);
-                        await reply('❌ Error reading file.');
-                    });
-
-                    await robin.sendMessage(from, {
-                        document: stream,
-                        mimetype: 'video/mp4',
-                        fileName: file.name,
-                        caption: `🎬 *${movie.title_long}*\n✅ Download complete (${torrent.quality})`,
-                        quoted: mek
-                    });
-
-                    fs.unlinkSync(filePath); // delete file
-                    client.destroy(); // cleanup
-                } catch (err) {
-                    console.error('Send Error:', err);
-                    await reply('❌ Error sending movie.');
-                }
+            stream.on('finish', async () => {
+                await robin.sendMessage(from, {
+                    document: fs.createReadStream(filePath),
+                    mimetype: 'video/mp4',
+                    fileName: `${title}.mp4`,
+                    caption: `🎬 *${movie.title}*\n📌 Quality: ${torrent.quality}\n✅ *Done!*`,
+                    quoted: mek
+                });
+                fs.unlinkSync(filePath);
+                client.destroy();
             });
 
-            writeStream.on('error', async err => {
-                console.error('Write Error:', err);
-                await reply('❌ Failed to save file.');
+            stream.on('error', async err => {
+                console.error(err);
+                await reply("❌ Failed to save file.");
+                client.destroy();
             });
         });
 
-    } catch (err) {
-        console.error('Movie Error:', err);
-        await reply('❌ Something went wrong.');
-    }
-});
-const { cmd } = require('../command');
-const axios = require('axios');
-const WebTorrent = require('webtorrent');
-const fs = require('fs-extra');
-const path = require('path');
-
-cmd({
-    pattern: "movie",
-    alias: ["moviedl", "films"],
-    react: '🎬',
-    category: "download",
-    desc: "Download movies from YTS via torrent",
-    filename: __filename
-}, async (robin, m, mek, { from, q, reply }) => {
-    try {
-        if (!q || q.trim() === '') return await reply('❌ Provide a movie name!');
-
-        // Search movie on YTS
-        const search = await axios.get(`https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(q)}`);
-        const movies = search.data.data.movies;
-        if (!movies || movies.length === 0) return await reply(`❌ No results for: *${q}*`);
-
-        const movie = movies[0]; // pick first result
-        const torrent = movie.torrents.find(t => t.quality === "1080p") || movie.torrents[0];
-        if (!torrent || !torrent.url) return await reply('❌ No suitable torrent found.');
-
-        await reply(`🎬 *${movie.title_long}*\n📥 Downloading *${torrent.quality}* via torrent...`);
-
-        // Start torrent
-        const client = new WebTorrent();
-        client.add(torrent.url, { path: './downloads' }, async torrent => {
-            const file = torrent.files.find(f => f.name.endsWith('.mp4')) || torrent.files[0];
-            const filePath = path.join('./downloads', file.path);
-
-            const writeStream = fs.createWriteStream(filePath);
-            const readStream = file.createReadStream();
-            readStream.pipe(writeStream);
-
-            writeStream.on('finish', async () => {
-                try {
-                    if (!fs.existsSync(filePath)) {
-                        await reply("❌ File not found after download.");
-                        return;
-                    }
-
-                    const stream = fs.createReadStream(filePath);
-                    stream.on('error', async err => {
-                        console.error('Stream Error:', err);
-                        await reply('❌ Error reading file.');
-                    });
-
-                    await robin.sendMessage(from, {
-                        document: stream,
-                        mimetype: 'video/mp4',
-                        fileName: file.name,
-                        caption: `🎬 *${movie.title_long}*\n✅ Download complete (${torrent.quality})`,
-                        quoted: mek
-                    });
-
-                    fs.unlinkSync(filePath); // delete file
-                    client.destroy(); // cleanup
-                } catch (err) {
-                    console.error('Send Error:', err);
-                    await reply('❌ Error sending movie.');
-                }
-            });
-
-            writeStream.on('error', async err => {
-                console.error('Write Error:', err);
-                await reply('❌ Failed to save file.');
-            });
+        client.on('error', async err => {
+            console.error(err);
+            await reply("❌ Torrent error. Try a different movie.");
         });
 
     } catch (err) {
-        console.error('Movie Error:', err);
-        await reply('❌ Something went wrong.');
+        console.error("Movie Plugin Error:", err);
+        await reply("❌ Something went wrong. Try again.");
     }
 });
