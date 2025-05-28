@@ -38,10 +38,10 @@ cmd({
 
         // Select the 720p PixelDrain link
         const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
-        const selectedDownload = pixelDrainLinks.find(link => link.quality === "SD 480p");
+        const selectedDownload = pixelDrainLinks.find(link => link.quality === "HD 720p");
         
         if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
-            return await reply('❌ No valid 480p PixelDrain link available.');
+            return await reply('❌ No valid 720p PixelDrain link available.');
         }
 
         // Convert to direct download link
@@ -50,7 +50,7 @@ cmd({
         
         
         // Download movie
-        const filePath = path.join(__dirname, `${selectedMovie.title}-480p.mp4`);
+        const filePath = path.join(__dirname, `${selectedMovie.title}-720p.mp4`);
         const writer = fs.createWriteStream(filePath);
         
         const { data } = await axios({
@@ -65,8 +65,8 @@ cmd({
             await robin.sendMessage(from, {
                 document: fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
-                fileName: `${selectedMovie.title}-480p.mp4`,
-                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 480p\n✅ *Download Complete!*`,
+                fileName: `${selectedMovie.title}-720p.mp4`,
+                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 720p\n✅ *Download Complete!*`,
                 quoted: mek 
             });
             fs.unlinkSync(filePath);
