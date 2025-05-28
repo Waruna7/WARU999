@@ -1,58 +1,80 @@
-const { cmd } = require('../command');
-const { fetchJson } = require('../lib/functions');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const config = require('../config');
 
-const YTS_API = "https://yts.mx/api/v2/list_movies.json";
+const TEMP = {};
 
-cmd({
-  pattern: "movie",
-  alias: ["moviedl", "films"],
-  react: '🎬',
-  category: "download",
-  desc: "Search and download movies from YTS as mp4 document",
-  filename: __filename
-}, async (robin, m, mek, { from, q, reply }) => {
-  try {
-    if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
+module.exports = {
+  command: ['movie'],
+  description: 'Search and download movies via Skymansion API',
+  async handler(m, { text, conn, args }) {
+    if (!text) return m.reply('🎬 Send movie name like: *!movie Interstellar*');
 
-    // Search YTS for movie info
-    const searchUrl = `${YTS_API}?query_term=${encodeURIComponent(q)}&limit=1&sort_by=download_count`;
-    const searchRes = await fetchJson(searchUrl);
+    try {
+      m.reply('🔍 Searching movie...');
 
-    if (!searchRes.data.movies || searchRes.data.movies.length === 0) {
-      return await reply(`❌ No movies found for "${q}"`);
+      // 1. Search on TMDB
+      const tmdb = await axios.get(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(text)}&api_key=YOUR_TMDB_KEY`);
+      const results = tmdb.data.results;
+
+      if (!results || results.length === 0) return m.reply('❌ Movie not found on TMDB.');
+      const movie = results[0];
+      const query = movie.title;
+
+      // 2. Search on Skymansion
+      const sky = await axios.get(`https://skymansion-api.vercel.app/api/v2/search/movie?query=${encodeURIComponent(query)}`);
+      const all = sky.data?.data;
+      if (!all || all.length === 0) return m.reply('❌ No download links found on Skymansion.');
+
+      // 3. Build quality list
+      let msg = `🎬 *${query}*\n📥 Select quality:\n\n`;
+      all.forEach((d, i) => {
+        msg += `${i + 1}. ${d.quality || 'Unknown'} - ${d.title}\n`;
+      });
+      msg += `\n_Reply with a number (1-${all.length})_`;
+
+      // 4. Store options in TEMP for later use
+      TEMP[m.sender] = all;
+
+      await conn.sendMessage(m.chat, { text: msg }, { quoted: m });
+
+    } catch (err) {
+      console.error(err);
+      m.reply('⚠️ Error occurred while searching or fetching download link.');
     }
+  },
 
-    const movie = searchRes.data.movies[0];
-    const title = movie.title_long;
-    const torrents = movie.torrents || [];
+  // 👇 Handle reply with quality selection
+  async after(m, { conn }) {
+    const selected = m.text.trim();
+    const options = TEMP[m.sender];
 
-    // Find 1080p torrent if available
-    let torrent = torrents.find(t => t.quality === "1080p");
-    if (!torrent) torrent = torrents[0]; // fallback to first torrent
+    if (!options || !/^\d+$/.test(selected)) return;
+    const index = parseInt(selected) - 1;
+    if (!options[index]) return m.reply('❌ Invalid option.');
 
-    if (!torrent) return await reply('❌ No torrent available to download.');
+    const chosen = options[index];
+    delete TEMP[m.sender]; // cleanup
 
-    // Prepare file path to save torrent video (mp4)
-    const safeTitle = title.replace(/[<>:"/\\|?*]+/g, '');
-    const filePath = path.join(__dirname, `${safeTitle}-${torrent.quality}.mp4`);
+    try {
+      m.reply(`📥 Downloading *${chosen.title}*...`);
 
-    // Download the torrent video file via magnet link or torrent url
-    // For simplicity, let's download the torrent file first and send magnet link instead
-    // (Direct torrent to mp4 download requires torrent client integration)
+      const res = await axios.get(chosen.url, { responseType: 'arraybuffer' });
+      const fileName = chosen.title.replace(/[^\w\s]/gi, '') + '.mp4';
 
-    // Instead of full torrent download, reply with magnet link or torrent URL
-    const torrentLink = torrent.url;  // Or use torrent.hash to form magnet
+      if (res.data.length > 150 * 1024 * 1024) {
+        return m.reply('❌ File too large for WhatsApp (over 150MB).');
+      }
 
-    await reply(`🎬 *${title}* (${torrent.quality})\n\nTorrent link:\n${torrentLink}\n\n⚠️ Full torrent download and mp4 extraction is complex in bot environment.`);
+      await conn.sendMessage(m.chat, {
+        document: res.data,
+        fileName,
+        mimetype: 'video/mp4'
+      }, { quoted: m });
 
-    // Optional: Implement torrent streaming/download via webtorrent (requires advanced setup)
-
-  } catch (error) {
-    console.error('Movie command error:', error);
-    await reply('❌ Something went wrong while processing your request.');
+    } catch (err) {
+      console.error(err);
+      m.reply('⚠️ Failed to download or send the movie.');
+    }
   }
-});
+};
