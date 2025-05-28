@@ -8,88 +8,51 @@ const config = require('../config');
 const API_URL = "https://api.skymansion.site/movies-dl/search";
 const DOWNLOAD_URL = "https://api.skymansion.site/movies-dl/download";
 const API_KEY = config.MOVIE_API_KEY;
-const TMDB_API_KEY = config.TMDB_API_KEY;
 
 cmd({
     pattern: "movie",
     alias: ["moviedl", "films"],
     react: '🎬',
     category: "download",
-    desc: "Search and download movies (Full HD 1080p)",
+    desc: "Search and download movies from PixelDrain",
     filename: __filename
 }, async (robin, m, mek, { from, q, reply }) => {
     try {
         if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
 
-        // 🔍 Search TMDb for movie info
-        const tmdbSearchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(q)}`;
-        const tmdbRes = await fetchJson(tmdbSearchUrl);
-
-        if (!tmdbRes.results || tmdbRes.results.length === 0) {
-            return await reply('❌ Movie not found in TMDb.');
-        }
-
-        const movie = tmdbRes.results[0];
-        const title = movie.title;
-        const year = movie.release_date ? movie.release_date.split('-')[0] : 'Unknown';
-        const posterUrl = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : null;
-        const overview = movie.overview || 'No description available.';
-        const tmdbId = movie.id;
-
-        // 🎬 Fetch extra details like runtime, genres, rating
-        const detailsUrl = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
-        const movieDetails = await fetchJson(detailsUrl);
-
-        const duration = movieDetails.runtime ? `${movieDetails.runtime} min` : 'N/A';
-        const genres = movieDetails.genres ? movieDetails.genres.map(g => g.name).join(', ') : 'N/A';
-        const rating = movieDetails.vote_average || 'N/A';
-
-        // Send thumbnail and info first
-        const movieInfo = `🎬 *${title} (${year})*
-🕰 Duration: ${duration}
-🌐 Genre: ${genres}
-⭐ Rating: ${rating}
-📝 ${overview}
-📥 Quality: 1080p
-\nDownloading now...`;
-
-        if (posterUrl) {
-            await robin.sendMessage(from, {
-                image: { url: posterUrl },
-                caption: movieInfo,
-                quoted: mek
-            });
-        } else {
-            await reply(movieInfo);
-        }
-
-        // 🔎 Search for download link
+        // Fetch movie search results
         const searchUrl = `${API_URL}?q=${encodeURIComponent(q)}&api_key=${API_KEY}`;
-        const response = await fetchJson(searchUrl);
+        let response = await fetchJson(searchUrl);
 
         if (!response || !response.SearchResult || !response.SearchResult.result.length) {
-            return await reply(`❌ No downloadable link found for: *${q}*`);
+            return await reply(`❌ No results found for: *${q}*`);
         }
 
-        const selectedMovie = response.SearchResult.result[0];
-        const downloadDetailsUrl = `${DOWNLOAD_URL}/?id=${selectedMovie.id}&api_key=${API_KEY}`;
-        const downloadDetails = await fetchJson(downloadDetailsUrl);
+        const selectedMovie = response.SearchResult.result[0]; // Select first result
+        const detailsUrl = `${DOWNLOAD_URL}/?id=${selectedMovie.id}&api_key=${API_KEY}`;
+        let detailsResponse = await fetchJson(detailsUrl);
 
-        const pixelDrainLinks = downloadDetails.downloadLinks.result.links.driveLinks;
-        const selectedDownload = pixelDrainLinks.find(link => link.quality === "Full HD 1080p");
+        if (!detailsResponse || !detailsResponse.downloadLinks || !detailsResponse.downloadLinks.result.links.driveLinks.length) {
+            return await reply('❌ No PixelDrain download links found.');
+        }
 
+        // Select the 720p PixelDrain link
+        const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
+        const selectedDownload = pixelDrainLinks.find(link => link.quality === "SD 480p");
+        
         if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
-            return await reply('❌ No valid 1080p PixelDrain link available.');
+            return await reply('❌ No valid 480p PixelDrain link available.');
         }
 
+        // Convert to direct download link
         const fileId = selectedDownload.link.split('/').pop();
         const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
-
-        // 📥 Download
-        const safeTitle = title.replace(/[<>:"/\\|?*]+/g, '');
-        const filePath = path.join(__dirname, `${safeTitle}-1080p.mp4`);
+        
+        
+        // Download movie
+        const filePath = path.join(__dirname, `${selectedMovie.title}-480p.mp4`);
         const writer = fs.createWriteStream(filePath);
-
+        
         const { data } = await axios({
             url: directDownloadLink,
             method: 'GET',
@@ -102,9 +65,9 @@ cmd({
             await robin.sendMessage(from, {
                 document: fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
-                fileName: `${safeTitle}-1080p.mp4`,
-                caption: `🎬 *${title}*\n📌 Quality: 1080p\n✅ *Download Complete!*`,
-                quoted: mek
+                fileName: `${selectedMovie.title}-480p.mp4`,
+                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 480p\n✅ *Download Complete!*`,
+                quoted: mek 
             });
             fs.unlinkSync(filePath);
         });
@@ -113,9 +76,8 @@ cmd({
             console.error('Download Error:', err);
             await reply('❌ Failed to download movie. Please try again.');
         });
-
     } catch (error) {
-        console.error('Movie command error:', error);
-        await reply('❌ Something went wrong.');
+        console.error('Error in movie command:', error);
+        await reply('❌ Sorry, something went wrong. Please try again later.');
     }
 });
