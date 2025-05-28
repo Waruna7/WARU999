@@ -1,88 +1,58 @@
 const { cmd } = require('../command');
 const { fetchJson } = require('../lib/functions');
-const axios = require('axios');
+const WebTorrent = require('webtorrent');
 const fs = require('fs-extra');
 const path = require('path');
-const config = require('../config');
-
-const API_URL = "https://moviestb.com/api/search"; // Replace with real endpoint
-const DOWNLOAD_URL = "https://moviestb.com/api/download"; // Replace with real endpoint
 
 cmd({
     pattern: "movie",
-    alias: ["moviedl", "films"],
+    alias: ["ytsdl", "torrentdl"],
     react: '🎬',
     category: "download",
-    desc: "Search and download movies from MovieSTB",
+    desc: "Download movies using YTS (Torrent)",
     filename: __filename
 }, async (robin, m, mek, { from, q, reply }) => {
     try {
-        if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
+        if (!q) return await reply("❌ Please provide a movie name.");
 
-        // Search for movie
-        const searchUrl = `${API_URL}?q=${encodeURIComponent(q)}`;
-        const response = await fetchJson(searchUrl);
+        const searchUrl = `https://yts.mx/api/v2/list_movies.json?query_term=${encodeURIComponent(q)}`;
+        const searchRes = await fetchJson(searchUrl);
 
-        if (!response || !response.results || !response.results.length) {
-            return await reply(`❌ No results found for: *${q}*`);
-        }
+        if (!searchRes.data.movies || searchRes.data.movies.length === 0)
+            return await reply("❌ No results found.");
 
-        const selectedMovie = response.results[0];
-        const detailsUrl = `${DOWNLOAD_URL}?id=${selectedMovie.id}`;
-        const detailsResponse = await fetchJson(detailsUrl);
+        const movie = searchRes.data.movies[0];
+        const title = movie.title;
+        const torrent = movie.torrents.find(t => t.quality === "1080p") || movie.torrents[0];
 
-        if (!detailsResponse || !detailsResponse.downloads || !detailsResponse.downloads.length) {
-            return await reply('❌ No MovieSTB download links found.');
-        }
+        const magnet = `magnet:?xt=urn:btih:${torrent.hash}&dn=${encodeURIComponent(title)}&tr=udp://tracker.openbittorrent.com:80`;
 
-        // Try to get 1080p, fallback to 720p or 480p
-        const downloadLinks = detailsResponse.downloads;
-        let selectedDownload =
-            downloadLinks.find(link => link.quality === "1080p") ||
-            downloadLinks.find(link => link.quality === "720p") ||
-            downloadLinks.find(link => link.quality === "480p");
+        await reply(`🎬 *${title}*\n📥 Downloading 1080p via torrent...`);
 
-        if (!selectedDownload || !selectedDownload.url.startsWith('http')) {
-            return await reply('❌ No valid download link available.');
-        }
+        const client = new WebTorrent();
+        const downloadPath = path.join(__dirname, `${title.replace(/[<>:"/\\|?*]+/g, '')}.mp4`);
 
-        // Notify user
-        await reply(`🎬 *${selectedMovie.title}*\n📥 Downloading in *${selectedDownload.quality}*...`);
+        client.add(magnet, { path: __dirname }, async torrent => {
+            const file = torrent.files.find(f => f.name.endsWith('.mp4'));
 
-        // Sanitize filename
-        const safeTitle = selectedMovie.title.replace(/[<>:"/\\|?*]+/g, '');
-        const filePath = path.join(__dirname, `${safeTitle}-${selectedDownload.quality}.mp4`);
+            file.createReadStream().pipe(fs.createWriteStream(downloadPath));
 
-        // Start download
-        const { data } = await axios({
-            url: selectedDownload.url,
-            method: 'GET',
-            responseType: 'stream',
-            timeout: 60000
-        });
+            torrent.on('done', async () => {
+                await robin.sendMessage(from, {
+                    document: fs.createReadStream(downloadPath),
+                    mimetype: 'video/mp4',
+                    fileName: `${title}.mp4`,
+                    caption: `🎬 *${title}*\n✅ *Download Complete!*`,
+                    quoted: mek
+                });
 
-        const writer = fs.createWriteStream(filePath);
-        data.pipe(writer);
-
-        writer.on('finish', async () => {
-            await robin.sendMessage(from, {
-                document: fs.createReadStream(filePath),
-                mimetype: 'video/mp4',
-                fileName: `${safeTitle}-${selectedDownload.quality}.mp4`,
-                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: ${selectedDownload.quality}\n✅ *Download Complete!*`,
-                quoted: mek
+                fs.unlinkSync(downloadPath);
+                client.destroy();
             });
-
-            fs.unlinkSync(filePath);
         });
 
-        writer.on('error', async (err) => {
-            console.error('Writer Error:', err);
-            await reply('❌ Failed to download the movie. Please try again later.');
-        });
-
-    } catch (error) {
-        console.error('Error in movie command:', error);
-        await reply('❌ Sorry, something went wrong. Please try again later.');
+    } catch (err) {
+        console.error("YTS Download Error:", err);
+        await reply("❌ Something went wrong.");
     }
 });
