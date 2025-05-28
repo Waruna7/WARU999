@@ -1,76 +1,83 @@
+const { cmd } = require('../command');
+const { fetchJson } = require('../lib/functions');
 const axios = require('axios');
-const TEMP = {};
+const fs = require('fs-extra');
+const path = require('path');
+const config = require('../config');
 
-// ⚠️ Replace this with your actual TMDB key:
-const TMDB_KEY = '2619480e652a7d92e47cef44c27e96b5';
+const API_URL = "https://api.skymansion.site/movies-dl/search";
+const DOWNLOAD_URL = "https://api.skymansion.site/movies-dl/download";
+const API_KEY = config.MOVIE_API_KEY;
 
-module.exports = {
-  command: ['movie'],
-  description: 'Search and download movies via Skymansion API',
-  
-  async handler(m, { text, conn }) {
-    if (!text) return m.reply('🎬 Send movie name like: *!movie Interstellar*');
-
+cmd({
+    pattern: "movie",
+    alias: ["moviedl", "films"],
+    react: '🎬',
+    category: "download",
+    desc: "Search and download movies from PixelDrain",
+    filename: __filename
+}, async (robin, m, mek, { from, q, reply }) => {
     try {
-      m.reply('🔍 Searching movie...');
+        if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
 
-      // TMDB Search
-      const tmdb = await axios.get(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(text)}&api_key=${TMDB_KEY}`);
-      const results = tmdb.data.results;
-      if (!results || results.length === 0) return m.reply('❌ Movie not found on TMDB.');
+        // Fetch movie search results
+        const searchUrl = `${API_URL}?q=${encodeURIComponent(q)}&api_key=${API_KEY}`;
+        let response = await fetchJson(searchUrl);
 
-      const movie = results[0];
-      const query = movie.title;
+        if (!response || !response.SearchResult || !response.SearchResult.result.length) {
+            return await reply(`❌ No results found for: *${q}*`);
+        }
 
-      // Skymansion Search
-      const sky = await axios.get(`https://skymansion-api.vercel.app/api/v2/search/movie?query=${encodeURIComponent(query)}`);
-      const all = sky.data?.data;
-      if (!all || all.length === 0) return m.reply('❌ No download links found on Skymansion.');
+        const selectedMovie = response.SearchResult.result[0]; // Select first result
+        const detailsUrl = `${DOWNLOAD_URL}/?id=${selectedMovie.id}&api_key=${API_KEY}`;
+        let detailsResponse = await fetchJson(detailsUrl);
 
-      // List options
-      let msg = `🎬 *${query}*\n📥 Select quality:\n\n`;
-      all.forEach((d, i) => {
-        msg += `${i + 1}. ${d.quality || 'Unknown'} - ${d.title}\n`;
-      });
-      msg += `\n_Reply with a number (1-${all.length})_`;
+        if (!detailsResponse || !detailsResponse.downloadLinks || !detailsResponse.downloadLinks.result.links.driveLinks.length) {
+            return await reply('❌ No PixelDrain download links found.');
+        }
 
-      TEMP[m.sender] = all;
-      await conn.sendMessage(m.chat, { text: msg }, { quoted: m });
+        // Select the 720p PixelDrain link
+        const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
+        const selectedDownload = pixelDrainLinks.find(link => link.quality === "SD 480p");
+        
+        if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
+            return await reply('❌ No valid 480p PixelDrain link available.');
+        }
 
-    } catch (err) {
-      console.error(err);
-      m.reply('⚠️ Error occurred while searching or fetching download link.');
+        // Convert to direct download link
+        const fileId = selectedDownload.link.split('/').pop();
+        const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
+        
+        
+        // Download movie
+        const filePath = path.join(__dirname, `${selectedMovie.title}-480p.mp4`);
+        const writer = fs.createWriteStream(filePath);
+        
+        const { data } = await axios({
+            url: directDownloadLink,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
+        data.pipe(writer);
+
+        writer.on('finish', async () => {
+            await robin.sendMessage(from, {
+                document: fs.readFileSync(filePath),
+                mimetype: 'video/mp4',
+                fileName: `${selectedMovie.title}-480p.mp4`,
+                caption: `🎬 *${selectedMovie.title}*\n📌 Quality: 480p\n✅ *Download Complete!*`,
+                quoted: mek 
+            });
+            fs.unlinkSync(filePath);
+        });
+
+        writer.on('error', async (err) => {
+            console.error('Download Error:', err);
+            await reply('❌ Failed to download movie. Please try again.');
+        });
+    } catch (error) {
+        console.error('Error in movie command:', error);
+        await reply('❌ Sorry, something went wrong. Please try again later.');
     }
-  },
-
-  async after(m, { conn }) {
-    const selected = m.text.trim();
-    const options = TEMP[m.sender];
-
-    if (!options || !/^\d+$/.test(selected)) return;
-    const index = parseInt(selected) - 1;
-    if (!options[index]) return m.reply('❌ Invalid option.');
-
-    const chosen = options[index];
-    delete TEMP[m.sender];
-
-    try {
-      m.reply(`📥 Downloading *${chosen.title}*...`);
-
-      const res = await axios.get(chosen.url, { responseType: 'arraybuffer' });
-      const fileName = chosen.title.replace(/[^\w\s]/gi, '') + '.mp4';
-
-      // ❌ Removed size limitation here (WhatsApp may fail silently >150MB)
-
-      await conn.sendMessage(m.chat, {
-        document: res.data,
-        fileName,
-        mimetype: 'video/mp4'
-      }, { quoted: m });
-
-    } catch (err) {
-      console.error(err);
-      m.reply('⚠️ Failed to download or send the movie.');
-    }
-  }
-};
+});
