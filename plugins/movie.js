@@ -5,24 +5,22 @@ const fs = require('fs-extra');
 const path = require('path');
 const config = require('../config');
 
-const SKY_API_URL = "https://api.skymansion.site/movies-dl";
-const SKY_API_KEY = config.MOVIE_API_KEY;
-
 const TMDB_API_KEY = config.TMDB_API_KEY;
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+const CINEPLEX_API = "https://api.cineplex.live/api/v1/movies/search";
 
 cmd({
     pattern: "movie",
     alias: ["moviedl", "films"],
     react: '🎬',
     category: "download",
-    desc: "Get movie info from TMDb and download in 1080p from PixelDrain",
+    desc: "Get movie info from TMDb and download from Cineplex",
     filename: __filename
 }, async (robin, m, mek, { from, q, reply }) => {
     try {
         if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
 
-        // Step 1: Get movie details from TMDb
+        // Step 1: Fetch TMDb info
         const tmdbSearchUrl = `${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(q)}&api_key=${TMDB_API_KEY}`;
         const tmdbResponse = await fetchJson(tmdbSearchUrl);
 
@@ -37,9 +35,8 @@ cmd({
         const releaseDate = movie.release_date || "Unknown";
         const rating = movie.vote_average || "N/A";
 
-        const caption = `🎬 *${movieTitle}*\n🗓️ Release Date: ${releaseDate}\n⭐ Rating: ${rating}/10\n\n📝 *Description:* ${movieOverview}`;
+        const caption = `🎬 *${movieTitle}*\n🗓️ Release: ${releaseDate}\n⭐ Rating: ${rating}/10\n\n📝 *About:* ${movieOverview}`;
 
-        // Send movie poster + details first
         if (moviePoster) {
             await robin.sendMessage(from, {
                 image: { url: moviePoster },
@@ -50,37 +47,27 @@ cmd({
             await reply(caption);
         }
 
-        // Step 2: Get download link from SkyMansion
-        const searchUrl = `${SKY_API_URL}/search?q=${encodeURIComponent(movieTitle)}&api_key=${SKY_API_KEY}`;
-        const skySearch = await fetchJson(searchUrl);
+        // Step 2: Fetch direct download link from CineplexAPI
+        const cineplexUrl = `${CINEPLEX_API}?q=${encodeURIComponent(movieTitle)}`;
+        const cineplexRes = await fetchJson(cineplexUrl);
 
-        if (!skySearch?.SearchResult?.result?.length) {
-            return await reply(`❌ No download found for: *${movieTitle}*`);
+        if (!cineplexRes || !cineplexRes.data || !cineplexRes.data.length) {
+            return await reply('❌ Movie not found on Cineplex.');
         }
 
-        const selectedMovie = skySearch.SearchResult.result[0];
-        const detailsUrl = `${SKY_API_URL}/download/?id=${selectedMovie.id}&api_key=${SKY_API_KEY}`;
-        const detailsResponse = await fetchJson(detailsUrl);
+        const result = cineplexRes.data[0];
+        const downloadLink = result?.download || result?.url;
 
-        if (!detailsResponse?.downloadLinks?.result?.links?.driveLinks?.length) {
-            return await reply('❌ No PixelDrain download links found.');
+        if (!downloadLink || !downloadLink.startsWith('http')) {
+            return await reply('❌ No valid direct download link found.');
         }
 
-        const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
-        const selectedDownload = pixelDrainLinks.find(link => link.quality === "Full HD 1080p");
-
-        if (!selectedDownload?.link?.startsWith('http')) {
-            return await reply('❌ No valid 1080p download link available.');
-        }
-
-        const fileId = selectedDownload.link.split('/').pop();
-        const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
+        // Step 3: Download and send movie file
         const filePath = path.join(__dirname, `${movieTitle}-1080p.mp4`);
-
         const writer = fs.createWriteStream(filePath);
 
         const { data } = await axios({
-            url: directDownloadLink,
+            url: downloadLink,
             method: 'GET',
             responseType: 'stream'
         });
@@ -92,7 +79,7 @@ cmd({
                 document: fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
                 fileName: `${movieTitle}-1080p.mp4`,
-                caption: `🎬 *${movieTitle}*\n📥 Downloaded in 1080p from PixelDrain.`,
+                caption: `🎬 *${movieTitle}*\n📥 Downloaded in 1080p from Cineplex.`,
                 quoted: mek
             });
 
