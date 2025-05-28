@@ -20,11 +20,12 @@ cmd({
     try {
         if (!q || q.trim() === '') return await reply('❌ Please provide a movie name! (e.g., Deadpool)');
 
+        // Search for the movie
         const searchUrl = `${API_URL}?q=${encodeURIComponent(q)}&api_key=${API_KEY}`;
         const response = await fetchJson(searchUrl);
 
         if (!response || !response.SearchResult || !response.SearchResult.result.length) {
-            return await reply(`❌ No results found for: *${q}*`);
+            return await reply(`❌ No result found for *${q}*.\nTry using a different name or spelling.`);
         }
 
         const selectedMovie = response.SearchResult.result[0];
@@ -32,13 +33,12 @@ cmd({
         const detailsResponse = await fetchJson(detailsUrl);
 
         if (!detailsResponse || !detailsResponse.downloadLinks || !detailsResponse.downloadLinks.result.links.driveLinks.length) {
-            return await reply('❌ No PixelDrain download links found.');
+            return await reply('❌ No PixelDrain download links found for this movie.');
         }
 
         const pixelDrainLinks = detailsResponse.downloadLinks.result.links.driveLinks;
-
-        // Priority: 720p > 1080p > 480p
         const preferredQualities = ["HD 720p", "Full HD 1080p", "SD 480p"];
+
         let selectedDownload = null;
         for (const quality of preferredQualities) {
             selectedDownload = pixelDrainLinks.find(link => link.quality === quality);
@@ -49,9 +49,10 @@ cmd({
         }
 
         if (!selectedDownload || !selectedDownload.link.startsWith('http')) {
-            return await reply('❌ No valid download link found for 720p, 1080p, or 480p.');
+            return await reply('❌ No valid download link available in 720p, 1080p, or 480p.');
         }
 
+        // Get PixelDrain file ID
         const urlParts = selectedDownload.link.split('/');
         const fileId = urlParts.includes('file') ? urlParts[urlParts.indexOf('file') + 1] : urlParts.pop();
         const directDownloadLink = `https://pixeldrain.com/api/file/${fileId}?download`;
@@ -85,6 +86,6 @@ cmd({
         });
     } catch (error) {
         console.error('Error in movie command:', error);
-        await reply('❌ Sorry, something went wrong. Please try again later.');
+        await reply('❌ Something went wrong. Try again later or with a different movie name.');
     }
 });
