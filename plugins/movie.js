@@ -1,48 +1,69 @@
-const WebTorrent = require("webtorrent");
 const fs = require("fs");
+const path = require("path");
 
 module.exports = {
   pattern: "download",
   alias: [],
-  react: "📥",
-  desc: "Download movie from magnet link",
+  desc: "Download movie from magnet link (MP4 only)",
   category: "downloader",
   use: "<magnet_link>",
+  react: "🎥",
+  
   async function(sock, m, msg, extra) {
     const { args, reply, from } = extra;
-    const magnetURI = args[0];
 
-    if (!magnetURI || !magnetURI.startsWith("magnet:?xt=")) {
-      return reply("❌ Provide a valid magnet link.\nExample: !download <magnet_link>");
+    if (!args[0] || !args[0].startsWith("magnet:?xt=")) {
+      return reply("❌ Provide a valid magnet link.\n\nExample:\n.download <magnet_link>");
     }
+
+    const magnet = args[0];
+
+    reply("⏳ Downloading torrent...\nPlease wait, this may take a few minutes.");
+
+    // Dynamically import ESM module
+    const { default: WebTorrent } = await import("webtorrent");
 
     const client = new WebTorrent();
 
-    reply("🔄 Starting torrent download...");
+    const downloadPath = path.join(__dirname, "..", "downloads");
+    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath);
 
-    client.add(magnetURI, { path: './downloads' }, async (torrent) => {
-      torrent.on("done", async () => {
-        const mp4File = torrent.files.find(file => file.name.endsWith(".mp4"));
-        if (!mp4File) return reply("❌ No MP4 file found in torrent.");
+    client.add(magnet, { path: downloadPath }, async (torrent) => {
+      const mp4File = torrent.files.find(f => f.name.endsWith(".mp4"));
+      if (!mp4File) {
+        client.destroy();
+        return reply("❌ No .mp4 file found in this torrent.");
+      }
 
-        const filePath = `./downloads/${mp4File.path}`;
+      const savePath = path.join(downloadPath, mp4File.path);
 
-        // Send as document
+      reply(`📥 Downloading: ${mp4File.name}`);
+
+      mp4File.getBuffer(async (err, buffer) => {
+        if (err) {
+          client.destroy();
+          return reply("❌ Error reading file.");
+        }
+
+        // Save temporarily
+        fs.writeFileSync(savePath, buffer);
+
         await sock.sendMessage(from, {
-          document: fs.readFileSync(filePath),
+          document: fs.readFileSync(savePath),
           mimetype: "video/mp4",
           fileName: mp4File.name,
         }, { quoted: m });
 
+        // Clean up
+        fs.unlinkSync(savePath);
         client.destroy();
-        fs.unlinkSync(filePath); // delete after sending
       });
+    });
 
-      torrent.on("error", err => {
-        console.error(err);
-        reply("❌ Torrent download failed.");
-        client.destroy();
-      });
+    client.on("error", (err) => {
+      console.error(err);
+      reply("❌ Torrent download failed.");
+      client.destroy();
     });
   }
 };
