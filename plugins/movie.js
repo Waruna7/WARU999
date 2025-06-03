@@ -1,91 +1,75 @@
 const { cmd } = require("../command");
-const WebTorrent = require("webtorrent");
-const fs = require("fs");
-const path = require("path");
+const axios = require("axios");
+
+const API_KEY = "sky|bfc07870633518de653fc608e775a88f39037522";
+const BASE_URL = "https://skymansion.in/api"; // (replace with actual API base URL if different)
 
 cmd(
   {
-    pattern: "torrent",
-    react: "🌀",
-    desc: "Download video from torrent link",
+    pattern: "movie",
+    react: "🎬",
+    desc: "Download movie via Skymansion API",
     category: "download",
     filename: __filename,
   },
   async (robin, mek, m, { from, reply, q, quoted }) => {
     try {
-      if (!q) return reply("❌ Please provide a torrent magnet link or .torrent URL.");
+      if (!q) return reply("❌ Please provide a movie name to search.");
 
-      const client = new WebTorrent();
-
-      await robin.sendMessage(from, { text: "🌀 Starting torrent download, please wait..." }, { quoted: mek });
-
-      client.add(q, { path: "./downloads" }, (torrent) => {
-        // Select the largest file in the torrent (usually the main video)
-        const file = torrent.files.reduce((a, b) => (a.length > b.length ? a : b));
-
-        const filePath = path.join("./downloads", file.name);
-
-        // Stream the file to disk
-        const stream = file.createReadStream();
-        const writeStream = fs.createWriteStream(filePath);
-        stream.pipe(writeStream);
-
-        torrent.on("download", () => {
-          const percent = ((torrent.downloaded / torrent.length) * 100).toFixed(2);
-          console.log(`Progress: ${percent}%`);
-          // Optionally you could send progress to user every N%
-        });
-
-        torrent.on("done", async () => {
-          console.log("Torrent download finished");
-
-          try {
-            const buffer = fs.readFileSync(filePath);
-
-            // Check file size limit (~100MB)
-            if (buffer.length > 100 * 1024 * 1024) {
-              await robin.sendMessage(
-                from,
-                {
-                  text: "❌ File is too large to send via WhatsApp (limit ~100MB).",
-                },
-                { quoted: mek }
-              );
-              // Cleanup
-              fs.unlinkSync(filePath);
-              client.destroy();
-              return;
-            }
-
-            await robin.sendMessage(
-              from,
-              {
-                document: buffer,
-                mimetype: "video/mp4",
-                fileName: file.name,
-                caption: `🎥 Here is your torrent video: ${file.name}`,
-              },
-              { quoted: mek }
-            );
-
-            // Cleanup local file after sending
-            fs.unlinkSync(filePath);
-            client.destroy();
-          } catch (err) {
-            console.error("Error sending file:", err);
-            reply("❌ Failed to send the downloaded file.");
-          }
-        });
-
-        torrent.on("error", (err) => {
-          console.error("Torrent error:", err);
-          reply("❌ Error downloading torrent: " + err.message);
-          client.destroy();
-        });
+      // 1. Search movie by name
+      const searchRes = await axios.get(`${BASE_URL}/search`, {
+        params: {
+          api_key: API_KEY,
+          query: q,
+        },
       });
-    } catch (error) {
-      console.error(error);
-      reply("❌ Error: " + error.message);
+
+      if (!searchRes.data || !searchRes.data.results || searchRes.data.results.length === 0)
+        return reply("❌ No movie found with that name.");
+
+      // Pick first movie result
+      const movie = searchRes.data.results[0];
+
+      // 2. Get download links/details by movie ID
+      const detailRes = await axios.get(`${BASE_URL}/movie/${movie.id}`, {
+        params: {
+          api_key: API_KEY,
+        },
+      });
+
+      if (!detailRes.data || !detailRes.data.download_links)
+        return reply("❌ No download links found for this movie.");
+
+      // 3. Choose preferred quality or first link
+      const downloadLink = detailRes.data.download_links.find(dl => dl.quality === "720p") || detailRes.data.download_links[0];
+
+      if (!downloadLink) return reply("❌ No suitable download link found.");
+
+      // 4. Send movie info and download link (or start download & send file if feasible)
+      let caption = `🎬 *${movie.title}* (${movie.year})\n\n`;
+      caption += `📥 Download link (${downloadLink.quality}):\n${downloadLink.url}\n\n`;
+      caption += "𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999";
+
+      await robin.sendMessage(
+        from,
+        {
+          text: caption,
+        },
+        { quoted: mek }
+      );
+
+      // Optional: If you want to download and send the movie file:
+      // const movieBuffer = await axios.get(downloadLink.url, { responseType: "arraybuffer" });
+      // await robin.sendMessage(from, {
+      //   document: movieBuffer.data,
+      //   mimetype: "video/mp4",
+      //   fileName: `${movie.title}.mp4`,
+      //   caption: `🎬 ${movie.title} 𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999`,
+      // }, { quoted: mek });
+
+    } catch (err) {
+      console.error(err);
+      reply("❌ Error fetching movie data: " + err.message);
     }
   }
 );
