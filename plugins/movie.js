@@ -1,69 +1,63 @@
-const fs = require("fs");
-const path = require("path");
+const WebTorrent = require('webtorrent');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = {
-  pattern: "download",
-  alias: [],
-  desc: "Download movie from magnet link (MP4 only)",
-  category: "downloader",
-  use: "<magnet_link>",
-  react: "🎥",
-  
-  async function(sock, m, msg, extra) {
-    const { args, reply, from } = extra;
+  pattern: 'download',
+  desc: 'Download movie from torrent/magnet link',
+  react: '⏳',
+  async function (robin, mek, m, extra) {
+    try {
+      const { from, reply } = extra;
+      const args = extra.args;
 
-    if (!args[0] || !args[0].startsWith("magnet:?xt=")) {
-      return reply("❌ Provide a valid magnet link.\n\nExample:\n.download <magnet_link>");
-    }
+      if (!args.length) return reply('Please provide a magnet or torrent link!');
 
-    const magnet = args[0];
+      const torrentLink = args[0];
 
-    reply("⏳ Downloading torrent...\nPlease wait, this may take a few minutes.");
+      reply('Starting download... This may take some time depending on file size.');
 
-    // Dynamically import ESM module
-    const { default: WebTorrent } = await import("webtorrent");
+      const client = new WebTorrent();
 
-    const client = new WebTorrent();
+      client.add(torrentLink, { path: './downloads' }, torrent => {
+        // Wait for the torrent to be ready (metadata fetched)
+        torrent.on('done', async () => {
+          try {
+            const file = torrent.files.find(f => f.name.endsWith('.mp4') || f.name.endsWith('.mkv') || f.name.endsWith('.avi'));
+            if (!file) {
+              reply('No video file found in torrent.');
+              client.destroy();
+              return;
+            }
 
-    const downloadPath = path.join(__dirname, "..", "downloads");
-    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath);
+            const filePath = path.join('./downloads', file.path);
 
-    client.add(magnet, { path: downloadPath }, async (torrent) => {
-      const mp4File = torrent.files.find(f => f.name.endsWith(".mp4"));
-      if (!mp4File) {
-        client.destroy();
-        return reply("❌ No .mp4 file found in this torrent.");
-      }
+            reply(`Download complete: ${file.name}\nUploading now...`);
 
-      const savePath = path.join(downloadPath, mp4File.path);
+            // Send video file via WhatsApp
+            await robin.sendMessage(from, {
+              document: fs.readFileSync(filePath),
+              fileName: file.name,
+              mimetype: 'video/mp4'
+            }, { quoted: mek });
 
-      reply(`📥 Downloading: ${mp4File.name}`);
+            // Clean up
+            fs.unlinkSync(filePath); // delete after sending
+            client.destroy();
+          } catch (e) {
+            reply('Error sending file: ' + e.message);
+            client.destroy();
+          }
+        });
 
-      mp4File.getBuffer(async (err, buffer) => {
-        if (err) {
-          client.destroy();
-          return reply("❌ Error reading file.");
-        }
-
-        // Save temporarily
-        fs.writeFileSync(savePath, buffer);
-
-        await sock.sendMessage(from, {
-          document: fs.readFileSync(savePath),
-          mimetype: "video/mp4",
-          fileName: mp4File.name,
-        }, { quoted: m });
-
-        // Clean up
-        fs.unlinkSync(savePath);
-        client.destroy();
+        // Progress notification (optional)
+        torrent.on('download', bytes => {
+          const progress = (torrent.progress * 100).toFixed(2);
+          console.log(`Progress: ${progress}%`);
+        });
       });
-    });
-
-    client.on("error", (err) => {
-      console.error(err);
-      reply("❌ Torrent download failed.");
-      client.destroy();
-    });
+    } catch (error) {
+      reply('Error: ' + error.message);
+    }
   }
 };
