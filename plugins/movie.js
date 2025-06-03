@@ -1,56 +1,48 @@
-// torrentPlugin.js (ESM version)
-import WebTorrent from 'webtorrent';
-import fs from 'fs';
-import path from 'path';
+const WebTorrent = require("webtorrent");
+const fs = require("fs");
 
-/**
- * Handle !download <magnet> command
- */
-export async function handleTorrentDownload(sock, message, magnetLink) {
-  try {
-    if (!magnetLink || !magnetLink.startsWith('magnet:?xt=urn:btih:')) {
-      await sock.sendMessage(message.key.remoteJid, { text: '❌ Please send a valid magnet link.' });
-      return;
+module.exports = {
+  pattern: "download",
+  alias: [],
+  react: "📥",
+  desc: "Download movie from magnet link",
+  category: "downloader",
+  use: "<magnet_link>",
+  async function(sock, m, msg, extra) {
+    const { args, reply, from } = extra;
+    const magnetURI = args[0];
+
+    if (!magnetURI || !magnetURI.startsWith("magnet:?xt=")) {
+      return reply("❌ Provide a valid magnet link.\nExample: !download <magnet_link>");
     }
 
     const client = new WebTorrent();
 
-    client.add(magnetLink, { path: './downloads' }, async (torrent) => {
-      await sock.sendMessage(message.key.remoteJid, { text: `⏳ Downloading: *${torrent.name}*` });
+    reply("🔄 Starting torrent download...");
 
-      torrent.on('done', async () => {
-        console.log('✅ Torrent download finished.');
+    client.add(magnetURI, { path: './downloads' }, async (torrent) => {
+      torrent.on("done", async () => {
+        const mp4File = torrent.files.find(file => file.name.endsWith(".mp4"));
+        if (!mp4File) return reply("❌ No MP4 file found in torrent.");
 
-        // Get largest file (usually the movie)
-        const file = torrent.files.reduce((a, b) => (a.length > b.length ? a : b));
-        const filePath = path.join('./downloads', file.path);
+        const filePath = `./downloads/${mp4File.path}`;
 
-        // Optional: check file size
-        const stats = fs.statSync(filePath);
-        const maxSizeMB = 1500; // WhatsApp limit is around 2GB; use less to be safe
-        const fileSizeMB = stats.size / (1024 * 1024);
-
-        if (fileSizeMB > maxSizeMB) {
-          await sock.sendMessage(message.key.remoteJid, { text: `⚠️ File too large to send: ${fileSizeMB.toFixed(2)} MB` });
-        } else {
-          await sock.sendMessage(message.key.remoteJid, {
-            document: fs.readFileSync(filePath),
-            fileName: file.name,
-            mimetype: 'video/mp4',
-          });
-        }
+        // Send as document
+        await sock.sendMessage(from, {
+          document: fs.readFileSync(filePath),
+          mimetype: "video/mp4",
+          fileName: mp4File.name,
+        }, { quoted: m });
 
         client.destroy();
+        fs.unlinkSync(filePath); // delete after sending
       });
 
-      // Optional download progress logging
-      torrent.on('download', () => {
-        const percent = (torrent.progress * 100).toFixed(1);
-        console.log(`⬇️ Progress: ${percent}%`);
+      torrent.on("error", err => {
+        console.error(err);
+        reply("❌ Torrent download failed.");
+        client.destroy();
       });
     });
-  } catch (err) {
-    console.error(err);
-    await sock.sendMessage(message.key.remoteJid, { text: '❌ Error downloading torrent.' });
   }
-}
+};
