@@ -5,40 +5,50 @@ cmd(
   {
     pattern: "tiktok",
     react: "🔥",
-    desc: "Download TikTok video",
+    desc: "Download TikTok video without watermark",
     category: "download",
     filename: __filename,
   },
   async (robin, mek, m, { from, q, reply }) => {
     try {
-      if (!q) return reply("*Send a valid TikTok video link.* 🔗");
+      if (!q) return reply("*Please send a valid TikTok video link.* 🔗");
 
-      // TikMate API endpoint for downloading TikTok video
-      const api = `https://api.tikmate.app/api/lookup?url=${encodeURIComponent(q)}`;
+      // Call TikMate API to get video info
+      const apiUrl = `https://api.tikmate.app/api/lookup?url=${encodeURIComponent(q)}`;
+      const { data } = await axios.get(apiUrl);
 
-      const res = await axios.get(api);
-
-      if (!res.data || !res.data.data || !res.data.data.play) {
-        return reply("❌ Failed to download TikTok video.");
+      if (!data || !data.video || !data.video.no_watermark) {
+        return reply("❌ Failed to get TikTok video.");
       }
 
-      // This URL is the direct video link without watermark
-      const videoUrl = res.data.data.play;
+      const videoUrl = data.video.no_watermark;
+      const thumbnail = data.thumbnail;
+      const author = data.author || "TikTok User";
 
-      // Send the video as a message
+      // Send video thumbnail with info
+      await robin.sendMessage(
+        from,
+        {
+          image: { url: thumbnail },
+          caption: `🔥 *TikTok Video Downloaded*\n👤 Author: ${author}\n\n𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999`,
+        },
+        { quoted: mek }
+      );
+
+      // Send the video itself
       await robin.sendMessage(
         from,
         {
           video: { url: videoUrl },
-          caption: "🔥 *TikTok Video Downloaded Successfully!*\n\n𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999",
+          caption: `🔥 *TikTok Video*\n\n𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999`,
         },
         { quoted: mek }
       );
 
       reply("*Thanks for using my bot!* 🔥❤️");
-    } catch (err) {
-      console.error(err);
-      reply(`❌ Error: ${err.message}`);
+    } catch (error) {
+      console.error(error);
+      reply(`❌ Error: ${error.message}`);
     }
   }
 );
