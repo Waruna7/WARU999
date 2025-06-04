@@ -4,7 +4,7 @@ const axios = require("axios");
 cmd(
   {
     pattern: "tiktok",
-    react: "🎵",
+    react: "🔥",
     desc: "Download TikTok video",
     category: "download",
     filename: __filename,
@@ -32,12 +32,12 @@ cmd(
         from,
         {
           video: { url: videoUrl },
-          caption: "🎵 *TikTok Video Downloaded Successfully!*\n\n𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999",
+          caption: "🔥 *TikTok Video Downloaded Successfully!*\n\n𝐌𝐚𝐝𝐞 𝐛𝐲 WARU999",
         },
         { quoted: mek }
       );
 
-      reply("*Thanks for using my bot!* 🎵❤️");
+      reply("*Thanks for using my bot!* 🔥❤️");
     } catch (err) {
       console.error(err);
       reply(`❌ Error: ${err.message}`);
