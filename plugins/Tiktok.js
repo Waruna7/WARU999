@@ -9,25 +9,23 @@ cmd(
     category: "download",
     filename: __filename,
   },
-  async (
-    robin,
-    mek,
-    m,
-    { from, q, reply }
-  ) => {
+  async (robin, mek, m, { from, q, reply }) => {
     try {
       if (!q) return reply("*Send a valid TikTok video link.* 🔗");
 
-      // Download via external API
-      const api = `https://api.tiklydown.me/api/download?url=${encodeURIComponent(q)}`;
+      // TikMate API endpoint for downloading TikTok video
+      const api = `https://api.tikmate.app/api/lookup?url=${encodeURIComponent(q)}`;
+
       const res = await axios.get(api);
 
-      if (!res.data || !res.data.video || !res.data.video.noWatermark) {
+      if (!res.data || !res.data.data || !res.data.data.play) {
         return reply("❌ Failed to download TikTok video.");
       }
 
-      const videoUrl = res.data.video.noWatermark;
+      // This URL is the direct video link without watermark
+      const videoUrl = res.data.data.play;
 
+      // Send the video as a message
       await robin.sendMessage(
         from,
         {
